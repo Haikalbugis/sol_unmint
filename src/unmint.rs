@@ -23,7 +23,7 @@ impl Unmint {
         Self { client }
     }
 
-    fn close_token_account(
+    fn close_token_account_instruction(
         &self,
         from_base58_string: &str,
         to_base58_string: &str,
@@ -47,7 +47,7 @@ impl Unmint {
         Ok(instraction)
     }
 
-    fn send_max_token(
+    fn send_max_token_instruction(
         &self,
         from_base58_string: &str,
         to_base58_string: &str,
@@ -87,6 +87,50 @@ impl Unmint {
         Ok(instraction)
     }
 
+    fn send_token_instruction(
+        &self,
+        from_base58_string: &str,
+        to_base58_string: &str,
+        token_mint_address: &str,
+        amount: f64,
+    ) -> Result<Instruction> {
+        let from_keypair = Keypair::from_base58_string(from_base58_string);
+        let to_keypair = Keypair::from_base58_string(to_base58_string);
+        let token_mint_pubkey = Pubkey::from_str(token_mint_address)?;
+
+        let ata_sender = get_associated_token_address(&from_keypair.pubkey(), &token_mint_pubkey);
+        let ata_destinaton = get_associated_token_address(&to_keypair.pubkey(), &token_mint_pubkey);
+
+        let balances = self
+            .client
+            .get_token_account_balance(&ata_sender)
+            .map_err(|e| {
+                if let solana_client::client_error::ClientErrorKind::RpcError(
+                    solana_client::rpc_request::RpcError::RpcResponseError { message, .. },
+                ) = e.kind()
+                {
+                    if message.contains("could not find account") {
+                        return anyhow!("token account not found");
+                    }
+                }
+                anyhow!("rpc error: {:?}", e)
+            })?;
+
+        let decimal: u8 = balances.decimals;
+        let amount_to_send = (amount * 10u64.pow(decimal.into()) as f64) as u64;
+
+        let instraction = transfer(
+            &TOKEN_PROGRAM_ID,
+            &ata_sender,
+            &ata_destinaton,
+            &from_keypair.pubkey(),
+            &[&from_keypair.pubkey()],
+            amount_to_send,
+        )?;
+
+        Ok(instraction)
+    }
+
     pub fn send_and_close(
         &self,
         from_base58_string: &str,
@@ -100,12 +144,55 @@ impl Unmint {
             .map(|s| Keypair::from_base58_string(s))
             .unwrap_or_else(|| Keypair::from_base58_string(from_base58_string));
 
-        let send_token_instruction =
-            self.send_max_token(from_base58_string, to_base58_string, token_mint_address)?;
-        let close_token_account_instruction =
-            self.close_token_account(from_base58_string, to_base58_string, token_mint_address)?;
+        let send_token_instruction = self.send_max_token_instruction(
+            from_base58_string,
+            to_base58_string,
+            token_mint_address,
+        )?;
+        let close_token_account_instruction = self.close_token_account_instruction(
+            from_base58_string,
+            to_base58_string,
+            token_mint_address,
+        )?;
 
         let instructions = vec![send_token_instruction, close_token_account_instruction];
+
+        let mut transaction = Transaction::new_with_payer(&instructions, Some(&fee_payer.pubkey()));
+
+        let mut signers: Vec<&Keypair> = vec![&from_keypair];
+        if fee_payer.pubkey() != from_keypair.pubkey() {
+            signers.push(&fee_payer);
+        }
+
+        transaction.sign(&signers, self.client.get_latest_blockhash()?);
+
+        let confirm = self.client.send_and_confirm_transaction(&transaction)?;
+
+        Ok(confirm)
+    }
+
+    pub fn send_token(
+        &self,
+        from_base58_string: &str,
+        to_base58_string: &str,
+        token_mint_address: &str,
+        amount: f64,
+        fee_payer_base58_string: Option<&str>,
+    ) -> Result<Signature> {
+        let from_keypair = Keypair::from_base58_string(from_base58_string);
+
+        let fee_payer: Keypair = fee_payer_base58_string
+            .map(|s| Keypair::from_base58_string(s))
+            .unwrap_or_else(|| Keypair::from_base58_string(from_base58_string));
+
+        let send_token_instruction = self.send_token_instruction(
+            from_base58_string,
+            to_base58_string,
+            token_mint_address,
+            amount,
+        )?;
+
+        let instructions = vec![send_token_instruction];
 
         let mut transaction = Transaction::new_with_payer(&instructions, Some(&fee_payer.pubkey()));
 
