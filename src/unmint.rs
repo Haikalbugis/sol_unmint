@@ -1,0 +1,123 @@
+use std::str::FromStr;
+
+use anyhow::{Ok, Result, anyhow};
+use solana_sdk::{instruction::Instruction, signature::Signature, transaction::Transaction};
+use spl_token::instruction::{close_account, transfer};
+use {
+    solana_client::rpc_client::RpcClient,
+    solana_sdk::{
+        commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Keypair, signer::Signer,
+    },
+    spl_associated_token_account::get_associated_token_address,
+    spl_token::ID as TOKEN_PROGRAM_ID,
+};
+
+pub struct Unmint {
+    client: RpcClient,
+}
+
+impl Unmint {
+    pub fn new(rpc_url: &str) -> Self {
+        let client = RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed());
+
+        Self { client }
+    }
+
+    fn close_token_account(
+        &self,
+        from_base58_string: &str,
+        to_base58_string: &str,
+        token_mint_address: &str,
+    ) -> Result<Instruction> {
+        let from_keypair = Keypair::from_base58_string(from_base58_string);
+        let to_keypair = Keypair::from_base58_string(to_base58_string);
+        let token_mint_pubkey = Pubkey::from_str(token_mint_address)?;
+
+        let ata_sender = get_associated_token_address(&from_keypair.pubkey(), &token_mint_pubkey);
+        let ata_destinaton = get_associated_token_address(&to_keypair.pubkey(), &token_mint_pubkey);
+
+        let instraction = close_account(
+            &TOKEN_PROGRAM_ID,
+            &ata_sender,
+            &ata_destinaton,
+            &from_keypair.pubkey(),
+            &[&from_keypair.pubkey()],
+        )?;
+
+        Ok(instraction)
+    }
+
+    fn send_max_token(
+        &self,
+        from_base58_string: &str,
+        to_base58_string: &str,
+        token_mint_address: &str,
+    ) -> Result<Instruction> {
+        let from_keypair = Keypair::from_base58_string(from_base58_string);
+        let to_keypair = Keypair::from_base58_string(to_base58_string);
+        let token_mint_pubkey = Pubkey::from_str(token_mint_address)?;
+
+        let ata_sender = get_associated_token_address(&from_keypair.pubkey(), &token_mint_pubkey);
+        let ata_destinaton = get_associated_token_address(&to_keypair.pubkey(), &token_mint_pubkey);
+
+        let balances = self
+            .client
+            .get_token_account_balance(&ata_sender)
+            .map_err(|e| {
+                if let solana_client::client_error::ClientErrorKind::RpcError(
+                    solana_client::rpc_request::RpcError::RpcResponseError { message, .. },
+                ) = e.kind()
+                {
+                    if message.contains("could not find account") {
+                        return anyhow!("token account not found");
+                    }
+                }
+                anyhow!("rpc error: {:?}", e)
+            })?;
+
+        let instraction = transfer(
+            &TOKEN_PROGRAM_ID,
+            &ata_sender,
+            &ata_destinaton,
+            &from_keypair.pubkey(),
+            &[&from_keypair.pubkey()],
+            balances.amount.parse::<u64>()?,
+        )?;
+
+        Ok(instraction)
+    }
+
+    pub fn send_and_close(
+        &self,
+        from_base58_string: &str,
+        to_base58_string: &str,
+        token_mint_address: &str,
+        fee_payer_base58_string: Option<&str>,
+    ) -> Result<Signature> {
+        let from_keypair = Keypair::from_base58_string(from_base58_string);
+
+        let fee_payer: Keypair = fee_payer_base58_string
+            .map(|s| Keypair::from_base58_string(s))
+            .unwrap_or_else(|| Keypair::from_base58_string(from_base58_string));
+
+        let send_token_instruction =
+            self.send_max_token(from_base58_string, to_base58_string, token_mint_address)?;
+        let close_token_account_instruction =
+            self.close_token_account(from_base58_string, to_base58_string, token_mint_address)?;
+
+        let instructions = vec![send_token_instruction, close_token_account_instruction];
+
+        let mut transaction = Transaction::new_with_payer(&instructions, Some(&fee_payer.pubkey()));
+
+        let mut signers: Vec<&Keypair> = vec![&from_keypair];
+        if fee_payer.pubkey() != from_keypair.pubkey() {
+            signers.push(&fee_payer);
+        }
+
+        transaction.sign(&signers, self.client.get_latest_blockhash()?);
+
+        let confirm = self.client.send_and_confirm_transaction(&transaction)?;
+
+        Ok(confirm)
+    }
+}
