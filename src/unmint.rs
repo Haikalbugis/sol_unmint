@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 use anyhow::{Ok, Result, anyhow};
 use solana_sdk::{instruction::Instruction, signature::Signature, transaction::Transaction};
@@ -12,15 +12,18 @@ use {
     spl_token::ID as TOKEN_PROGRAM_ID,
 };
 
+#[derive(Clone)]
 pub struct Unmint {
-    client: RpcClient,
+    client: Arc<RpcClient>,
 }
 
 impl Unmint {
     pub fn new(rpc_url: &str) -> Self {
         let client = RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed());
 
-        Self { client }
+        Self {
+            client: client.into(),
+        }
     }
 
     fn close_token_account_instruction(
