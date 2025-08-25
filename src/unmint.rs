@@ -17,6 +17,16 @@ pub struct Unmint {
     client: Arc<RpcClient>,
 }
 
+/// Create a new instance of Unmint
+///
+/// # Arguments
+///
+/// * `rpc_url` - Solana's RPC URL, e.g., "https://api.mainnet-beta.solana.com"
+///
+/// # Example
+/// ```
+/// let unmint = gamba::Unmint::new("https://api.mainnet-beta.solana.com");
+// ```
 impl Unmint {
     pub fn new(rpc_url: &str) -> Self {
         let client = RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed());
@@ -37,7 +47,6 @@ impl Unmint {
         let token_mint_pubkey = Pubkey::from_str(token_mint_address)?;
 
         let ata_sender = get_associated_token_address(&from_keypair.pubkey(), &token_mint_pubkey);
-        let ata_destinaton = get_associated_token_address(&to_keypair.pubkey(), &token_mint_pubkey);
 
         let instraction = close_account(
             &TOKEN_PROGRAM_ID,
@@ -133,6 +142,16 @@ impl Unmint {
         Ok(instraction)
     }
 
+    /// Sends all tokens from `from` to `to` and closes the ATA.
+    ///
+    // # Arguments
+    /// * `from_base58_string` - Base58 private key of the sender
+    /// * `to_base58_string` - Base58 private key of the recipient
+    /// * `token_mint_address` - Token mint address
+    /// * `fee_payer_base58_string` - Optional, who pays the fee
+    ///
+    /// # Returns
+    /// * `Signature` of the transaction
     pub fn send_and_close(
         &self,
         from_base58_string: &str,
@@ -173,6 +192,19 @@ impl Unmint {
         Ok(confirm)
     }
 
+    /// Sends a specified amount of SPL token from one account to another.
+    ///
+    /// # Arguments
+    ///
+    /// * `from_base58_string` - The sender's private key in Base58 string format.
+    /// * `to_address` - The recipient's public key (Base58 string).
+    /// * `token_mint_address` - The SPL token mint address (Base58 string).
+    /// * `amount` - The amount of tokens to send as a floating-point number.
+    /// * `fee_payer_base58_string` - Optional: the Base58 private key of the fee payer.
+    ///    If `None`, the sender will pay the transaction fee.
+    ///
+    /// # Returns
+    /// * `Result<Signature>` - Returns the transaction signature if successful.
     pub fn send_token(
         &self,
         from_base58_string: &str,
