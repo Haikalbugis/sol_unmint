@@ -42,7 +42,7 @@ impl Unmint {
         let instraction = close_account(
             &TOKEN_PROGRAM_ID,
             &ata_sender,
-            &ata_destinaton,
+            &to_keypair.pubkey(),
             &from_keypair.pubkey(),
             &[&from_keypair.pubkey()],
         )?;
