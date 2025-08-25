@@ -39,11 +39,9 @@ impl Unmint {
     fn close_token_account_instruction(
         &self,
         from_base58_string: &str,
-        to_base58_string: &str,
         token_mint_address: &str,
     ) -> Result<Instruction> {
         let from_keypair = Keypair::from_base58_string(from_base58_string);
-        let to_keypair = Keypair::from_base58_string(to_base58_string);
         let token_mint_pubkey = Pubkey::from_str(token_mint_address)?;
 
         let ata_sender = get_associated_token_address(&from_keypair.pubkey(), &token_mint_pubkey);
@@ -51,7 +49,7 @@ impl Unmint {
         let instraction = close_account(
             &TOKEN_PROGRAM_ID,
             &ata_sender,
-            &to_keypair.pubkey(),
+            &from_keypair.pubkey(),
             &from_keypair.pubkey(),
             &[&from_keypair.pubkey()],
         )?;
@@ -170,11 +168,8 @@ impl Unmint {
             to_base58_string,
             token_mint_address,
         )?;
-        let close_token_account_instruction = self.close_token_account_instruction(
-            from_base58_string,
-            to_base58_string,
-            token_mint_address,
-        )?;
+        let close_token_account_instruction =
+            self.close_token_account_instruction(from_base58_string, token_mint_address)?;
 
         let instructions = vec![send_token_instruction, close_token_account_instruction];
 
