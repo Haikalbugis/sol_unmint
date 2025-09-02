@@ -1,8 +1,8 @@
 use anyhow::Result;
-use sol_unmint::Unmint;
+use sol_unmint::{TokenProgram, Unmint};
 
 fn main() -> Result<()> {
-    let unmint = Unmint::new("https://api.mainnet-beta.solana.com");
+    let unmint = Unmint::new("https://api.mainnet-beta.solana.com", TokenProgram::Legacy);
 
     let tx_sig = unmint.send_and_close(
         "",                                             //Base58 private key of the sender

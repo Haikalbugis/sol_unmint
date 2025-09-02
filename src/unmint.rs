@@ -1,20 +1,20 @@
 use std::{str::FromStr, sync::Arc};
 
+use crate::token_program::TokenProgram;
 use anyhow::{Ok, Result, anyhow};
 use solana_sdk::{instruction::Instruction, signature::Signature, transaction::Transaction};
-use spl_token::instruction::{close_account, transfer};
+
 use {
     solana_client::rpc_client::RpcClient,
     solana_sdk::{
         commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Keypair, signer::Signer,
     },
-    spl_associated_token_account::get_associated_token_address,
-    spl_token::ID as TOKEN_PROGRAM_ID,
 };
 
 #[derive(Clone)]
 pub struct Unmint {
     client: Arc<RpcClient>,
+    token_program: TokenProgram,
 }
 
 /// Create a new instance of Unmint
@@ -28,11 +28,11 @@ pub struct Unmint {
 /// let unmint = gamba::Unmint::new("https://api.mainnet-beta.solana.com");
 // ```
 impl Unmint {
-    pub fn new(rpc_url: &str) -> Self {
+    pub fn new(rpc_url: &str, token_program: TokenProgram) -> Self {
         let client = RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed());
-
         Self {
             client: client.into(),
+            token_program,
         }
     }
 
@@ -44,15 +44,13 @@ impl Unmint {
         let from_keypair = Keypair::from_base58_string(from_base58_string);
         let token_mint_pubkey = Pubkey::from_str(token_mint_address)?;
 
-        let ata_sender = get_associated_token_address(&from_keypair.pubkey(), &token_mint_pubkey);
+        let ata_sender = self
+            .token_program
+            .ata(&from_keypair.pubkey(), &token_mint_pubkey);
 
-        let instraction = close_account(
-            &TOKEN_PROGRAM_ID,
-            &ata_sender,
-            &from_keypair.pubkey(),
-            &from_keypair.pubkey(),
-            &[&from_keypair.pubkey()],
-        )?;
+        let instraction =
+            self.token_program
+                .close_ix(&ata_sender, &from_keypair.pubkey(), &from_keypair)?;
 
         Ok(instraction)
     }
@@ -67,8 +65,13 @@ impl Unmint {
         let to_keypair = Keypair::from_base58_string(to_base58_string);
         let token_mint_pubkey = Pubkey::from_str(token_mint_address)?;
 
-        let ata_sender = get_associated_token_address(&from_keypair.pubkey(), &token_mint_pubkey);
-        let ata_destinaton = get_associated_token_address(&to_keypair.pubkey(), &token_mint_pubkey);
+        let ata_sender = self
+            .token_program
+            .ata(&from_keypair.pubkey(), &token_mint_pubkey);
+
+        let ata_destinaton = self
+            .token_program
+            .ata(&to_keypair.pubkey(), &token_mint_pubkey);
 
         let balances = self
             .client
@@ -85,13 +88,13 @@ impl Unmint {
                 anyhow!("rpc error: {:?}", e)
             })?;
 
-        let instraction = transfer(
-            &TOKEN_PROGRAM_ID,
+        let instraction = self.token_program.transfer_ix(
             &ata_sender,
             &ata_destinaton,
-            &from_keypair.pubkey(),
-            &[&from_keypair.pubkey()],
+            &from_keypair,
             balances.amount.parse::<u64>()?,
+            balances.decimals,
+            &token_mint_pubkey,
         )?;
 
         Ok(instraction)
@@ -107,8 +110,11 @@ impl Unmint {
         let from_keypair = Keypair::from_base58_string(from_base58_string);
         let token_mint_pubkey = Pubkey::from_str(token_mint_address)?;
 
-        let ata_sender = get_associated_token_address(&from_keypair.pubkey(), &token_mint_pubkey);
-        let ata_destinaton = get_associated_token_address(&to_pubkey, &token_mint_pubkey);
+        let ata_sender = self
+            .token_program
+            .ata(&from_keypair.pubkey(), &token_mint_pubkey);
+
+        let ata_destinaton = self.token_program.ata(&to_pubkey, &token_mint_pubkey);
 
         let balances = self
             .client
@@ -128,13 +134,13 @@ impl Unmint {
         let decimal: u8 = balances.decimals;
         let amount_to_send = (amount * 10u64.pow(decimal.into()) as f64) as u64;
 
-        let instraction = transfer(
-            &TOKEN_PROGRAM_ID,
+        let instraction = self.token_program.transfer_ix(
             &ata_sender,
             &ata_destinaton,
-            &from_keypair.pubkey(),
-            &[&from_keypair.pubkey()],
+            &from_keypair,
             amount_to_send,
+            balances.decimals,
+            &token_mint_pubkey,
         )?;
 
         Ok(instraction)
