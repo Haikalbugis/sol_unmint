@@ -46,9 +46,7 @@ impl Unmint {
         let token_mint_pubkey = Pubkey::from_str(token_mint_address)?;
         let address = *address_reedem_sol.unwrap_or(&from_keypair.pubkey());
 
-        let ata_sender = self
-            .token_program
-            .ata(&from_keypair.pubkey(), &token_mint_pubkey);
+        let ata_sender = self.token_program.ata(&address, &token_mint_pubkey);
 
         let instraction = self
             .token_program
@@ -176,6 +174,7 @@ impl Unmint {
             to_base58_string,
             token_mint_address,
         )?;
+
         let close_token_account_instruction = self.close_token_account_instruction(
             from_base58_string,
             token_mint_address,
