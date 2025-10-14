@@ -183,8 +183,6 @@ impl Unmint {
             Some(&fee_payer.pubkey()),
         )?;
 
-        println!("{:?}", close_token_account_instruction);
-
         let instructions = vec![send_token_instruction, close_token_account_instruction];
 
         let mut transaction = Transaction::new_with_payer(&instructions, Some(&fee_payer.pubkey()));
