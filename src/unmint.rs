@@ -3,6 +3,7 @@ use std::{str::FromStr, sync::Arc};
 use crate::token_program::TokenProgram;
 use anyhow::{Ok, Result, anyhow};
 use solana_sdk::{instruction::Instruction, signature::Signature, transaction::Transaction};
+use spl_associated_token_account::instruction::create_associated_token_account;
 
 use {
     solana_client::rpc_client::RpcClient,
@@ -61,16 +62,15 @@ impl Unmint {
         &self,
         from_base58_string: &str,
         to_address: &Pubkey,
-        token_mint_address: &str,
-    ) -> Result<Instruction> {
+        token_mint_address: &Pubkey,
+    ) -> Result<(Instruction, Pubkey)> {
         let from_keypair = Keypair::from_base58_string(from_base58_string);
-        let token_mint_pubkey = Pubkey::from_str(token_mint_address)?;
 
         let ata_sender = self
             .token_program
-            .ata(&from_keypair.pubkey(), &token_mint_pubkey);
+            .ata(&from_keypair.pubkey(), token_mint_address);
 
-        let ata_destinaton = self.token_program.ata(&*to_address, &token_mint_pubkey);
+        let ata_destinaton = self.token_program.ata(&*to_address, token_mint_address);
 
         let balances = self
             .client
@@ -93,10 +93,10 @@ impl Unmint {
             &from_keypair,
             balances.amount.parse::<u64>()?,
             balances.decimals,
-            &token_mint_pubkey,
+            token_mint_address,
         )?;
 
-        Ok(instraction)
+        Ok((instraction, ata_destinaton))
     }
 
     fn send_token_instruction(
@@ -162,17 +162,20 @@ impl Unmint {
         token_mint_address: &str,
         fee_payer_base58_string: Option<&str>,
     ) -> Result<Signature> {
+        let mut instructions = vec![];
+
         let from_keypair = Keypair::from_base58_string(from_base58_string);
         let to_keypair = Keypair::from_base58_string(to_base58_string);
+        let token_mint_pubkey = Pubkey::from_str(token_mint_address)?;
 
         let fee_payer: Keypair = fee_payer_base58_string
             .map(|s| Keypair::from_base58_string(s))
             .unwrap_or_else(|| Keypair::from_base58_string(from_base58_string));
 
-        let send_token_instruction = self.send_max_token_instruction(
+        let (send_token_instruction, ata_destination) = self.send_max_token_instruction(
             from_base58_string,
             &to_keypair.pubkey(),
-            token_mint_address,
+            &token_mint_pubkey,
         )?;
 
         let close_token_account_instruction = self.close_token_account_instruction(
@@ -181,7 +184,18 @@ impl Unmint {
             Some(&fee_payer.pubkey()),
         )?;
 
-        let instructions = vec![send_token_instruction, close_token_account_instruction];
+        if self.client.get_account(&ata_destination).is_err() {
+            let ata = self.token_program.create_ata_instraction(
+                &fee_payer.pubkey(),
+                &to_keypair.pubkey(),
+                &token_mint_pubkey,
+            );
+
+            instructions.push(ata);
+        }
+
+        instructions.push(send_token_instruction);
+        instructions.push(close_token_account_instruction);
 
         let mut transaction = Transaction::new_with_payer(&instructions, Some(&fee_payer.pubkey()));
 
@@ -206,15 +220,28 @@ impl Unmint {
     ) -> Result<Signature> {
         let from_keypair = Keypair::from_base58_string(from_base58_string);
         let to_pubkey = Pubkey::from_str(to_address)?;
+        let token_mint_pubkey = Pubkey::from_str(token_mint_address)?;
+
+        let mut instructions = vec![];
 
         let fee_payer: Keypair = fee_payer_base58_string
             .map(|s| Keypair::from_base58_string(s))
             .unwrap_or_else(|| Keypair::from_base58_string(from_base58_string));
 
-        let send_token_instruction =
-            self.send_max_token_instruction(from_base58_string, &to_pubkey, token_mint_address)?;
+        let (send_token_instruction, ata_destination) =
+            self.send_max_token_instruction(from_base58_string, &to_pubkey, &token_mint_pubkey)?;
 
-        let instructions = vec![send_token_instruction];
+        if self.client.get_account(&ata_destination).is_err() {
+            let ata = self.token_program.create_ata_instraction(
+                &from_keypair.pubkey(),
+                &to_pubkey,
+                &token_mint_pubkey,
+            );
+
+            instructions.push(ata);
+        }
+
+        instructions.push(send_token_instruction);
 
         let mut transaction = Transaction::new_with_payer(&instructions, Some(&fee_payer.pubkey()));
 

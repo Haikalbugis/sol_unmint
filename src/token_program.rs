@@ -2,6 +2,7 @@ use anyhow::Result;
 use solana_sdk::{instruction::Instruction, pubkey::Pubkey, signature::Keypair, signer::Signer};
 use spl_associated_token_account::{
     get_associated_token_address, get_associated_token_address_with_program_id,
+    instruction::create_associated_token_account,
 };
 use spl_token::ID as TOKEN_PROGRAM_ID;
 use spl_token_2022::ID as TOKEN_2022_PROGRAM_ID;
@@ -45,6 +46,21 @@ impl TokenProgram {
             TokenProgram::Legacy => get_associated_token_address(owner, mint),
             TokenProgram::Token2022 => {
                 get_associated_token_address_with_program_id(owner, mint, &TOKEN_2022_PROGRAM_ID)
+            }
+        }
+    }
+    pub fn create_ata_instraction(
+        &self,
+        owner: &Pubkey,
+        to_address: &Pubkey,
+        mint: &Pubkey,
+    ) -> Instruction {
+        match self {
+            TokenProgram::Legacy => {
+                create_associated_token_account(owner, to_address, mint, &TOKEN_PROGRAM_ID)
+            }
+            TokenProgram::Token2022 => {
+                create_associated_token_account(owner, to_address, mint, &TOKEN_2022_PROGRAM_ID)
             }
         }
     }
