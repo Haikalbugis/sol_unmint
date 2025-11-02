@@ -2,7 +2,9 @@ use std::{str::FromStr, sync::Arc};
 
 use crate::token_program::TokenProgram;
 use anyhow::{Ok, Result, anyhow};
-use solana_sdk::{instruction::Instruction, signature::Signature, transaction::Transaction};
+use solana_sdk::{
+    instruction::Instruction, signature::Signature, system_instruction, transaction::Transaction,
+};
 
 use {
     solana_client::rpc_client::RpcClient,
@@ -308,6 +310,40 @@ impl Unmint {
             amount: balances.amount,
             ui_amount_string: balances.ui_amount_string,
         })
+    }
+
+    pub fn balance_sol<'a, A>(&self, address: A) -> Result<f64>
+    where
+        A: Into<PubkeyInput<'a>>,
+    {
+        let address_pubkey = address.into().to_pubkey()?;
+        let lamports = self.client.get_balance(&address_pubkey)?;
+        Ok(lamports as f64 / solana_sdk::native_token::LAMPORTS_PER_SOL as f64)
+    }
+
+    pub fn transfer_sol(
+        &self,
+        from_base58_string: &str,
+        to: &str,
+        amount_sol: f64,
+    ) -> Result<Signature> {
+        let from_keypair = Keypair::from_base58_string(from_base58_string);
+        let to_pubkey = Pubkey::from_str(to)?;
+
+        let lamports = (amount_sol * 1_000_000_000.0) as u64;
+
+        let transfer_ix =
+            system_instruction::transfer(&from_keypair.pubkey(), &to_pubkey, lamports);
+
+        let recent_blockhash = self.client.get_latest_blockhash()?;
+
+        let mut tx = Transaction::new_with_payer(&[transfer_ix], Some(&from_keypair.pubkey()));
+
+        tx.sign(&[from_keypair], recent_blockhash);
+
+        let sig = self.client.send_and_confirm_transaction(&tx)?;
+
+        Ok(sig)
     }
 
     /// Sends a specified amount of SPL token from one account to another.
