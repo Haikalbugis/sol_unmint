@@ -3,7 +3,6 @@ use std::{str::FromStr, sync::Arc};
 use crate::token_program::TokenProgram;
 use anyhow::{Ok, Result, anyhow};
 use solana_sdk::{instruction::Instruction, signature::Signature, transaction::Transaction};
-use spl_associated_token_account::instruction::create_associated_token_account;
 
 use {
     solana_client::rpc_client::RpcClient,
@@ -11,6 +10,14 @@ use {
         commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Keypair, signer::Signer,
     },
 };
+
+#[derive(Debug, Clone)]
+pub struct UiTokenAmount {
+    pub ui_amount: Option<f64>,
+    pub decimals: u8,
+    pub amount: String,
+    pub ui_amount_string: String,
+}
 
 #[derive(Clone)]
 pub struct Unmint {
@@ -70,22 +77,9 @@ impl Unmint {
             .token_program
             .ata(&from_keypair.pubkey(), token_mint_address);
 
-        let ata_destinaton = self.token_program.ata(&*to_address, token_mint_address);
+        let ata_destinaton = self.token_program.ata(to_address, token_mint_address);
 
-        let balances = self
-            .client
-            .get_token_account_balance(&ata_sender)
-            .map_err(|e| {
-                if let solana_client::client_error::ClientErrorKind::RpcError(
-                    solana_client::rpc_request::RpcError::RpcResponseError { message, .. },
-                ) = e.kind()
-                {
-                    if message.contains("could not find account") {
-                        return anyhow!("token account not found");
-                    }
-                }
-                anyhow!("rpc error: {:?}", e)
-            })?;
+        let balances = self.balance(to_address, token_mint_address)?;
 
         let instraction = self.token_program.transfer_ix(
             &ata_sender,
@@ -255,6 +249,39 @@ impl Unmint {
         let confirm = self.client.send_and_confirm_transaction(&transaction)?;
 
         Ok(confirm)
+    }
+
+    pub fn balance<A, M>(&self, address: A, token_mint_address: M) -> Result<UiTokenAmount>
+    where
+        A: Into<Pubkey>,
+        M: Into<Pubkey>,
+    {
+        let address_pubkey = address.into();
+        let token_mint_pubkey = token_mint_address.into();
+
+        let ata_sender = self.token_program.ata(&address_pubkey, &token_mint_pubkey);
+
+        let balances = self
+            .client
+            .get_token_account_balance(&ata_sender)
+            .map_err(|e| {
+                if let solana_client::client_error::ClientErrorKind::RpcError(
+                    solana_client::rpc_request::RpcError::RpcResponseError { message, .. },
+                ) = e.kind()
+                {
+                    if message.contains("could not find account") {
+                        return anyhow!("token account not found");
+                    }
+                }
+                anyhow!("rpc error: {:?}", e)
+            })?;
+
+        Ok(UiTokenAmount {
+            ui_amount: balances.ui_amount,
+            decimals: balances.decimals,
+            amount: balances.amount,
+            ui_amount_string: balances.ui_amount_string,
+        })
     }
 
     /// Sends a specified amount of SPL token from one account to another.
