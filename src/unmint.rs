@@ -107,7 +107,7 @@ impl Unmint {
 
         let ata_destinaton = self.token_program.ata(to_address, token_mint_address);
 
-        let balances = self.balance(to_address, token_mint_address)?;
+        let balances = self.balance(&from_keypair.pubkey(), token_mint_address)?;
 
         let instraction = self.token_program.transfer_ix(
             &ata_sender,
