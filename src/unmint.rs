@@ -11,6 +11,32 @@ use {
     },
 };
 
+pub enum PubkeyInput<'a> {
+    Key(&'a Pubkey),
+    Str(&'a str),
+}
+
+impl<'a> From<&'a Pubkey> for PubkeyInput<'a> {
+    fn from(key: &'a Pubkey) -> Self {
+        PubkeyInput::Key(key)
+    }
+}
+
+impl<'a> From<&'a str> for PubkeyInput<'a> {
+    fn from(s: &'a str) -> Self {
+        PubkeyInput::Str(s)
+    }
+}
+
+impl<'a> PubkeyInput<'a> {
+    pub fn to_pubkey(&self) -> Result<Pubkey, anyhow::Error> {
+        match self {
+            PubkeyInput::Key(k) => Ok((*k).clone()),
+            PubkeyInput::Str(s) => Ok(Pubkey::from_str(s)?),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct UiTokenAmount {
     pub ui_amount: Option<f64>,
@@ -251,13 +277,13 @@ impl Unmint {
         Ok(confirm)
     }
 
-    pub fn balance<A, M>(&self, address: A, token_mint_address: M) -> Result<UiTokenAmount>
+    pub fn balance<'a, A, M>(&self, address: A, token_mint_address: M) -> Result<UiTokenAmount>
     where
-        A: Into<Pubkey>,
-        M: Into<Pubkey>,
+        A: Into<PubkeyInput<'a>>,
+        M: Into<PubkeyInput<'a>>,
     {
-        let address_pubkey = address.into();
-        let token_mint_pubkey = token_mint_address.into();
+        let address_pubkey = address.into().to_pubkey()?;
+        let token_mint_pubkey = token_mint_address.into().to_pubkey()?;
 
         let ata_sender = self.token_program.ata(&address_pubkey, &token_mint_pubkey);
 
