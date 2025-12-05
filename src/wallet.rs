@@ -7,6 +7,7 @@ pub enum WalletKey {
     StringKey(String),
     ArryKey(Vec<u8>),
 }
+
 pub struct Wallet {
     keypair: Keypair,
 }

@@ -180,14 +180,14 @@ impl Unmint {
     pub fn send_and_close(
         &self,
         from_base58_string: &str,
-        to_base58_string: &str,
+        to_address: &str,
         token_mint_address: &str,
         fee_payer_base58_string: Option<&str>,
     ) -> Result<Signature> {
         let mut instructions = vec![];
 
+        let to_address_pubkey = Pubkey::from_str(to_address).unwrap();
         let from_keypair = Keypair::from_base58_string(from_base58_string);
-        let to_keypair = Keypair::from_base58_string(to_base58_string);
         let token_mint_pubkey = Pubkey::from_str(token_mint_address)?;
 
         let fee_payer: Keypair = fee_payer_base58_string
@@ -196,7 +196,7 @@ impl Unmint {
 
         let (send_token_instruction, ata_destination) = self.send_max_token_instruction(
             from_base58_string,
-            &to_keypair.pubkey(),
+            &to_address_pubkey,
             &token_mint_pubkey,
         )?;
 
@@ -209,7 +209,7 @@ impl Unmint {
         if self.client.get_account(&ata_destination).is_err() {
             let ata = self.token_program.create_ata_instraction(
                 &fee_payer.pubkey(),
-                &to_keypair.pubkey(),
+                &to_address_pubkey,
                 &token_mint_pubkey,
             );
 
